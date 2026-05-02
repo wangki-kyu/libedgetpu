@@ -225,13 +225,22 @@ Status MmioDriver::RegisterAndEnableAllInterrupts() {
       }));
 
   // Enable interrupts, if needed.
+  LOG(INFO) << "[INIT][RegInts] scalar_core_controller->EnableInterrupts() "
+               "(sc_host_int_control)";
   RETURN_IF_ERROR(scalar_core_controller_->EnableInterrupts());
+  LOG(INFO) << "[INIT][RegInts] instruction_queue->EnableInterrupts() "
+               "(queue_int_control)";
   RETURN_IF_ERROR(instruction_queue_->EnableInterrupts());
+  LOG(INFO) << "[INIT][RegInts] fatal_error_interrupt_controller->EnableInterrupts() "
+               "(fatal_err_int_control)";
   RETURN_IF_ERROR(fatal_error_interrupt_controller_->EnableInterrupts());
 
   // TODO: refactor for Darwinn 1.0 vs 2.0 driver.
+  LOG(INFO) << "[INIT][RegInts] top_level_interrupt_manager->EnableInterrupts() "
+               "(thermal/mbist/pcie_err/thermal_shutdown)";
   RETURN_IF_ERROR(top_level_interrupt_manager_->EnableInterrupts());
 
+  LOG(INFO) << "[INIT][RegInts] END";
   return Status();  // OK
 }
 
@@ -256,40 +265,60 @@ Status MmioDriver::CheckHibError() {
 }
 
 Status MmioDriver::DoOpen(bool debug_mode) {
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] BEGIN debug_mode=" << debug_mode;
   StdMutexLock state_lock(&state_mutex_);
   RETURN_IF_ERROR(ValidateState(/*expected_state=*/kClosed));
 
   // Register Access.
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=registers->Open()";
   RETURN_IF_ERROR(registers_->Open());
   auto registers_closer =
       MakeCleanup([this] { CHECK_OK(registers_->Close()); });
 
   // Reset Handler - Manages power state of the chip.
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=top_level_handler->Open()";
   RETURN_IF_ERROR(top_level_handler_->Open());
   auto top_level_handler_closer =
       MakeCleanup([this] { CHECK_OK(top_level_handler_->Close()); });
 
   // LPM power up core
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=LpmCoreToActive()";
   RETURN_IF_ERROR(top_level_handler_->LpmCoreToActive());
 
   // Disable clock gate and reset GCB for clean state.
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=DisableSoftwareClockGate()";
   RETURN_IF_ERROR(top_level_handler_->DisableSoftwareClockGate());
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=DisableHardwareClockGate()";
   RETURN_IF_ERROR(top_level_handler_->DisableHardwareClockGate());
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=EnableReset()";
   RETURN_IF_ERROR(top_level_handler_->EnableReset());
 
   // Quit from reset mode.
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=QuitReset()";
   RETURN_IF_ERROR(top_level_handler_->QuitReset());
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=EnableHardwareClockGate()";
   RETURN_IF_ERROR(top_level_handler_->EnableHardwareClockGate());
 
   // HIB should be good to start with.
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=CheckHibError()";
   RETURN_IF_ERROR(CheckHibError());
 
   // Limit AXI DMA burst.
   if (hib_user_csr_offsets_.dma_burst_limiter !=
       kCsrRegisterSpaceInvalidOffset) {
+    LOG(INFO) << StringPrintf(
+        "[INIT][MmioDriver::DoOpen] dma_burst_limiter (hib_user) @0x%05llx "
+        "write=0x%016llx",
+        (unsigned long long)hib_user_csr_offsets_.dma_burst_limiter,
+        (unsigned long long)chip_structure_.axi_dma_burst_limiter);
     RETURN_IF_ERROR(registers_->Write(hib_user_csr_offsets_.dma_burst_limiter,
                                       chip_structure_.axi_dma_burst_limiter));
   } else {
+    LOG(INFO) << StringPrintf(
+        "[INIT][MmioDriver::DoOpen] dma_burst_limiter (hib_kernel) @0x%05llx "
+        "write=0x%016llx",
+        (unsigned long long)hib_kernel_csr_offsets_.dma_burst_limiter,
+        (unsigned long long)chip_structure_.axi_dma_burst_limiter);
     RETURN_IF_ERROR(registers_->Write(hib_kernel_csr_offsets_.dma_burst_limiter,
                                       chip_structure_.axi_dma_burst_limiter));
   }
@@ -297,29 +326,40 @@ Status MmioDriver::DoOpen(bool debug_mode) {
   // MMU Access.
   const int num_simple_entries =
       GetNumSimplePageTableEntries(chip_structure_.num_page_table_entries);
+  LOG(INFO) << StringPrintf(
+      "[INIT][MmioDriver::DoOpen] phase=mmu_mapper->Open() "
+      "num_simple_entries=%d num_page_table_entries=%llu",
+      num_simple_entries,
+      (unsigned long long)chip_structure_.num_page_table_entries);
 
   RETURN_IF_ERROR(mmu_mapper_->Open(num_simple_entries));
   auto mmu_mapper_closer =
       MakeCleanup([this] { CHECK_OK(mmu_mapper_->Close()); });
 
   // Interrupt Handler.
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=interrupt_handler->Open()";
   RETURN_IF_ERROR(interrupt_handler_->Open());
   auto interrupt_handler_closer =
       MakeCleanup([this] { CHECK_OK(interrupt_handler_->Close()); });
 
   // Instruction Queue Access.
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=instruction_queue->Open()";
   RETURN_IF_ERROR(instruction_queue_->Open(address_space_.get()));
   auto instruction_queue_closer =
       MakeCleanup([this] { CHECK_OK(instruction_queue_->Close()); });
 
   // Scalar core control.
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=scalar_core_controller->Open()";
   RETURN_IF_ERROR(scalar_core_controller_->Open());
   auto scalar_core_controller_closer =
       MakeCleanup([this] { CHECK_OK(scalar_core_controller_->Close()); });
 
   if (!debug_mode) {
     // Move all subsystems to Run state.
+    LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=DoRunControl(kMoveToRun)";
     RETURN_IF_ERROR(run_controller_->DoRunControl(RunControl::kMoveToRun));
+  } else {
+    LOG(INFO) << "[INIT][MmioDriver::DoOpen] debug_mode=true — skip DoRunControl";
   }
 
   // TODO: refactor for Darwinn 1.0 vs 2.0 driver.
@@ -327,31 +367,42 @@ Status MmioDriver::DoOpen(bool debug_mode) {
   if (hib_user_csr_offsets_.status_block_update !=
       kCsrRegisterSpaceInvalidOffset) {
     // Disable periodic status block updates.
+    LOG(INFO) << StringPrintf(
+        "[INIT][MmioDriver::DoOpen] status_block_update @0x%05llx write=0 "
+        "(disable periodic SB updates)",
+        (unsigned long long)hib_user_csr_offsets_.status_block_update);
     RETURN_IF_ERROR(
         registers_->Write(hib_user_csr_offsets_.status_block_update, 0));
   }
 
   // Register and enable all interrupts.
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=RegisterAndEnableAllInterrupts()";
   RETURN_IF_ERROR(RegisterAndEnableAllInterrupts());
 
   // DMA scheduler.
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=dma_scheduler.Open()";
   RETURN_IF_ERROR(dma_scheduler_.Open());
   auto dma_scheduler_closer = MakeCleanup([this] {
     CHECK_OK(dma_scheduler_.Close(api::Driver::ClosingMode::kGraceful));
   });
 
   // On-Chip DRAM allocator.
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=dram_allocator->Open()";
   RETURN_IF_ERROR(dram_allocator_->Open());
 
   // Errata registers.
   // TODO: refactor for Darwinn 1.0 vs 2.0 driver.
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=FixErrata()";
   RETURN_IF_ERROR(FixErrata());
 
   // All good. Move state to open.
   RETURN_IF_ERROR(SetState(kOpen));
 
   // Clock gate until the first request arrives.
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=EnableSoftwareClockGate() "
+               "(idle until first request)";
   RETURN_IF_ERROR(top_level_handler_->EnableSoftwareClockGate());
+  LOG(INFO) << "[INIT][MmioDriver::DoOpen] END (state=kOpen)";
 
   // Release cleanup functions.
   dma_scheduler_closer.release();

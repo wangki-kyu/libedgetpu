@@ -48,10 +48,16 @@ BeagleTopLevelInterruptManager::BeagleTopLevelInterruptManager(
 }
 
 Status BeagleTopLevelInterruptManager::DoEnableInterrupts() {
+  LOG(INFO) << "[INIT][TopLevelIntMgr] BEGIN DoEnableInterrupts";
+  LOG(INFO) << "[INIT][TopLevelIntMgr] phase=EnableThermalWarningInterrupt";
   RETURN_IF_ERROR(EnableThermalWarningInterrupt());
+  LOG(INFO) << "[INIT][TopLevelIntMgr] phase=EnableMbistInterrupt";
   RETURN_IF_ERROR(EnableMbistInterrupt());
+  LOG(INFO) << "[INIT][TopLevelIntMgr] phase=EnablePcieErrorInterrupt";
   RETURN_IF_ERROR(EnablePcieErrorInterrupt());
+  LOG(INFO) << "[INIT][TopLevelIntMgr] phase=EnableThermalShutdownInterrupt";
   RETURN_IF_ERROR(EnableThermalShutdownInterrupt());
+  LOG(INFO) << "[INIT][TopLevelIntMgr] END DoEnableInterrupts";
   return Status();  // OK
 }
 
@@ -90,6 +96,11 @@ Status BeagleTopLevelInterruptManager::EnableThermalWarningInterrupt() {
   driver::config::registers::Omc0D4 omc0_d4_helper(omc0_d4_read);
   omc0_d4_helper.set_thm_warn_en(1);
 
+  LOG(INFO) << StringPrintf(
+      "[INIT][TopLevelIntMgr] omc0_d4 @0x%05llx read=0x%08x write=0x%08x "
+      "(thm_warn_en=1)",
+      (unsigned long long)apex_csr_offsets_.omc0_d4, omc0_d4_read,
+      omc0_d4_helper.raw());
   RETURN_IF_ERROR(
       registers_->Write32(apex_csr_offsets_.omc0_d4, omc0_d4_helper.raw()));
 
@@ -132,11 +143,23 @@ Status BeagleTopLevelInterruptManager::EnableMbistInterrupt() {
 }
 
 Status BeagleTopLevelInterruptManager::EnablePcieErrorInterrupt() {
+  LOG(INFO) << StringPrintf(
+      "[INIT][TopLevelIntMgr] slv_abm_en @0x%05llx write=1",
+      (unsigned long long)apex_csr_offsets_.slv_abm_en);
   RETURN_IF_ERROR(registers_->Write32(apex_csr_offsets_.slv_abm_en, 1));
+  LOG(INFO) << StringPrintf(
+      "[INIT][TopLevelIntMgr] mst_abm_en @0x%05llx write=1",
+      (unsigned long long)apex_csr_offsets_.mst_abm_en);
   RETURN_IF_ERROR(registers_->Write32(apex_csr_offsets_.mst_abm_en, 1));
   // Write 0x3 to unmask.
+  LOG(INFO) << StringPrintf(
+      "[INIT][TopLevelIntMgr] slv_err_resp_isr_mask @0x%05llx write=0x3 (unmask)",
+      (unsigned long long)apex_csr_offsets_.slv_err_resp_isr_mask);
   RETURN_IF_ERROR(
       registers_->Write32(apex_csr_offsets_.slv_err_resp_isr_mask, 0x3));
+  LOG(INFO) << StringPrintf(
+      "[INIT][TopLevelIntMgr] mst_err_resp_isr_mask @0x%05llx write=0x3 (unmask)",
+      (unsigned long long)apex_csr_offsets_.mst_err_resp_isr_mask);
   RETURN_IF_ERROR(
       registers_->Write32(apex_csr_offsets_.mst_err_resp_isr_mask, 0x3));
 
@@ -151,6 +174,10 @@ Status BeagleTopLevelInterruptManager::EnableThermalShutdownInterrupt() {
   driver::config::registers::Omc0D8 omc0_d8_helper(omc0_d8_read);
   omc0_d8_helper.set_sd_en(1);
 
+  LOG(INFO) << StringPrintf(
+      "[INIT][TopLevelIntMgr] omc0_d8 @0x%05llx read=0x%08x write=0x%08x (sd_en=1)",
+      (unsigned long long)apex_csr_offsets_.omc0_d8, omc0_d8_read,
+      omc0_d8_helper.raw());
   RETURN_IF_ERROR(
       registers_->Write32(apex_csr_offsets_.omc0_d8, omc0_d8_helper.raw()));
 

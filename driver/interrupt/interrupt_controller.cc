@@ -17,6 +17,7 @@
 #include "driver/config/register_constants.h"
 #include "driver/registers/registers.h"
 #include "port/logging.h"
+#include "port/stringprintf.h"
 
 namespace platforms {
 namespace darwinn {
@@ -34,8 +35,14 @@ InterruptController::InterruptController(
 Status InterruptController::EnableInterrupts() {
   if (csr_offsets_.control != kCsrRegisterSpaceInvalidOffset) {
     const uint64 enable_all = (1ULL << NumInterrupts()) - 1;
+    LOG(INFO) << StringPrintf(
+        "[INIT][IntCtrl::EnableInterrupts] control @0x%05llx write=0x%llx "
+        "(num_interrupts=%d)",
+        (unsigned long long)csr_offsets_.control,
+        (unsigned long long)enable_all, NumInterrupts());
     return registers_->Write(csr_offsets_.control, enable_all);
   } else {
+    LOG(INFO) << "[INIT][IntCtrl::EnableInterrupts] control offset invalid — skip";
     return OkStatus();
   }
 }
@@ -43,6 +50,9 @@ Status InterruptController::EnableInterrupts() {
 Status InterruptController::DisableInterrupts() {
   if (csr_offsets_.control != kCsrRegisterSpaceInvalidOffset) {
     constexpr uint64 kDisableAll = 0;
+    LOG(INFO) << StringPrintf(
+        "[INIT][IntCtrl::DisableInterrupts] control @0x%05llx write=0x0",
+        (unsigned long long)csr_offsets_.control);
     return registers_->Write(csr_offsets_.control, kDisableAll);
   } else {
     return OkStatus();
@@ -57,6 +67,11 @@ Status InterruptController::ClearInterruptStatus(int id) {
 
     uint64 value = (1ULL << NumInterrupts()) - 1;
     value &= clear_bit;
+    LOG(INFO) << StringPrintf(
+        "[INIT][IntCtrl::ClearInterruptStatus] status @0x%05llx write=0x%llx "
+        "(W0C clear bit %d)",
+        (unsigned long long)csr_offsets_.status,
+        (unsigned long long)value, id);
     return registers_->Write(csr_offsets_.status, value);
   } else {
     return OkStatus();

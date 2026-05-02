@@ -19,6 +19,14 @@
 #include "port/errors.h"
 #include "port/logging.h"
 #include "port/status_macros.h"
+#include "port/stringprintf.h"
+
+#define INIT_LOG_RUN_CTRL(name, off, val)                                    \
+  do {                                                                       \
+    LOG(INFO) << StringPrintf(                                               \
+        "[INIT][RunCtrl] %-30s @0x%05llx write=0x%llx", (name),              \
+        (unsigned long long)(off), (unsigned long long)(val));               \
+  } while (0)
 
 namespace platforms {
 namespace darwinn {
@@ -61,7 +69,13 @@ Status RunController::DoRunControl(RunControl run_state) {
   constexpr uint64 kInvalidOffset = static_cast<uint64>(-1);
 
   const uint64 run_state_value = static_cast<uint64>(run_state);
+  LOG(INFO) << StringPrintf(
+      "[INIT][RunCtrl] BEGIN run_state=%llu (0=Halt 1=Run)",
+      (unsigned long long)run_state_value);
   if (scalar_core_csr_offsets_.scalarCoreRunControl != kInvalidOffset) {
+    INIT_LOG_RUN_CTRL("scalarCoreRunControl",
+                      scalar_core_csr_offsets_.scalarCoreRunControl,
+                      run_state_value);
     RETURN_IF_ERROR(registers_->Write(
       scalar_core_csr_offsets_.scalarCoreRunControl, run_state_value));
   } else {
@@ -69,6 +83,9 @@ Status RunController::DoRunControl(RunControl run_state) {
       scalar_core_csr_offsets_.scalarDatapath_0RunControl, run_state_value));
   }
   if (scalar_core_csr_offsets_.avDataPopRunControl != kInvalidOffset) {
+    INIT_LOG_RUN_CTRL("avDataPopRunControl",
+                      scalar_core_csr_offsets_.avDataPopRunControl,
+                      run_state_value);
     RETURN_IF_ERROR(registers_->Write(
       scalar_core_csr_offsets_.avDataPopRunControl, run_state_value));
   } else {
@@ -76,6 +93,9 @@ Status RunController::DoRunControl(RunControl run_state) {
       scalar_core_csr_offsets_.avDataPop_0RunControl, run_state_value));
   }
   if (scalar_core_csr_offsets_.parameterPopRunControl != kInvalidOffset) {
+    INIT_LOG_RUN_CTRL("parameterPopRunControl",
+                      scalar_core_csr_offsets_.parameterPopRunControl,
+                      run_state_value);
     RETURN_IF_ERROR(registers_->Write(
       scalar_core_csr_offsets_.parameterPopRunControl, run_state_value));
   } else {
@@ -83,6 +103,9 @@ Status RunController::DoRunControl(RunControl run_state) {
       scalar_core_csr_offsets_.parameterPop_0RunControl, run_state_value));
   }
   if (scalar_core_csr_offsets_.infeedRunControl != kInvalidOffset) {
+    INIT_LOG_RUN_CTRL("infeedRunControl",
+                      scalar_core_csr_offsets_.infeedRunControl,
+                      run_state_value);
     RETURN_IF_ERROR(registers_->Write(
         scalar_core_csr_offsets_.infeedRunControl, run_state_value));
   } else {
@@ -90,6 +113,9 @@ Status RunController::DoRunControl(RunControl run_state) {
         scalar_core_csr_offsets_.infeed_0_0RunControl, run_state_value));
   }
   if (scalar_core_csr_offsets_.outfeedRunControl != kInvalidOffset) {
+    INIT_LOG_RUN_CTRL("outfeedRunControl",
+                      scalar_core_csr_offsets_.outfeedRunControl,
+                      run_state_value);
     RETURN_IF_ERROR(registers_->Write(
         scalar_core_csr_offsets_.outfeedRunControl, run_state_value));
   } else {
@@ -117,6 +143,11 @@ Status RunController::DoRunControl(RunControl run_state) {
   // automatically for different chips.
   config::registers::TileConfig<7> helper;
   helper.set_broadcast();
+  LOG(INFO) << StringPrintf(
+      "[INIT][RunCtrl] tileconfig0 @0x%05llx write=0x%llx (broadcast) "
+      "+ poll readback",
+      (unsigned long long)tile_config_csr_offsets_.tileconfig0,
+      (unsigned long long)helper.raw());
   RETURN_IF_ERROR(
       registers_->Write(tile_config_csr_offsets_.tileconfig0, helper.raw()));
 
@@ -127,6 +158,8 @@ Status RunController::DoRunControl(RunControl run_state) {
   RETURN_IF_ERROR(
       registers_->Poll(tile_config_csr_offsets_.tileconfig0, helper.raw()));
   if (tile_csr_offsets_.opRunControl != kInvalidOffset) {
+    INIT_LOG_RUN_CTRL("opRunControl (tile broadcast)",
+                      tile_csr_offsets_.opRunControl, run_state_value);
     RETURN_IF_ERROR(
         registers_->Write(tile_csr_offsets_.opRunControl, run_state_value));
   }
@@ -163,6 +196,8 @@ Status RunController::DoRunControl(RunControl run_state) {
         registers_->Write(tile_csr_offsets_.opRunControl_7, run_state_value));
   }
   if (tile_csr_offsets_.narrowToWideRunControl != kInvalidOffset) {
+    INIT_LOG_RUN_CTRL("narrowToWideRunControl (tile)",
+                      tile_csr_offsets_.narrowToWideRunControl, run_state_value);
     RETURN_IF_ERROR(registers_->Write(tile_csr_offsets_.narrowToWideRunControl,
                                       run_state_value));
   }
@@ -199,6 +234,8 @@ Status RunController::DoRunControl(RunControl run_state) {
         tile_csr_offsets_.narrowToWideRunControl_7, run_state_value));
   }
   if (tile_csr_offsets_.wideToNarrowRunControl != kInvalidOffset) {
+    INIT_LOG_RUN_CTRL("wideToNarrowRunControl (tile)",
+                      tile_csr_offsets_.wideToNarrowRunControl, run_state_value);
     RETURN_IF_ERROR(registers_->Write(tile_csr_offsets_.wideToNarrowRunControl,
                                       run_state_value));
   }
@@ -261,25 +298,46 @@ Status RunController::DoRunControl(RunControl run_state) {
     }
   }
 
+  INIT_LOG_RUN_CTRL("meshBus0RunControl",
+                    tile_csr_offsets_.meshBus0RunControl, run_state_value);
   RETURN_IF_ERROR(
       registers_->Write(tile_csr_offsets_.meshBus0RunControl, run_state_value));
+  INIT_LOG_RUN_CTRL("meshBus1RunControl",
+                    tile_csr_offsets_.meshBus1RunControl, run_state_value);
   RETURN_IF_ERROR(
       registers_->Write(tile_csr_offsets_.meshBus1RunControl, run_state_value));
+  INIT_LOG_RUN_CTRL("meshBus2RunControl",
+                    tile_csr_offsets_.meshBus2RunControl, run_state_value);
   RETURN_IF_ERROR(
       registers_->Write(tile_csr_offsets_.meshBus2RunControl, run_state_value));
+  INIT_LOG_RUN_CTRL("meshBus3RunControl",
+                    tile_csr_offsets_.meshBus3RunControl, run_state_value);
   RETURN_IF_ERROR(
       registers_->Write(tile_csr_offsets_.meshBus3RunControl, run_state_value));
+  INIT_LOG_RUN_CTRL("ringBusConsumer0RunControl",
+                    tile_csr_offsets_.ringBusConsumer0RunControl,
+                    run_state_value);
   RETURN_IF_ERROR(registers_->Write(
       tile_csr_offsets_.ringBusConsumer0RunControl, run_state_value));
+  INIT_LOG_RUN_CTRL("ringBusConsumer1RunControl",
+                    tile_csr_offsets_.ringBusConsumer1RunControl,
+                    run_state_value);
   RETURN_IF_ERROR(registers_->Write(
       tile_csr_offsets_.ringBusConsumer1RunControl, run_state_value));
+  INIT_LOG_RUN_CTRL("ringBusProducerRunControl",
+                    tile_csr_offsets_.ringBusProducerRunControl,
+                    run_state_value);
   RETURN_IF_ERROR(registers_->Write(tile_csr_offsets_.ringBusProducerRunControl,
                                     run_state_value));
   if (tile_csr_offsets_.narrowToNarrowRunControl != kInvalidOffset) {
+    INIT_LOG_RUN_CTRL("narrowToNarrowRunControl",
+                      tile_csr_offsets_.narrowToNarrowRunControl,
+                      run_state_value);
     RETURN_IF_ERROR(registers_->Write(
         tile_csr_offsets_.narrowToNarrowRunControl, run_state_value));
   }
 
+  LOG(INFO) << "[INIT][RunCtrl] END";
   return Status();  // OK
 }
 

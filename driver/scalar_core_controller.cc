@@ -22,6 +22,7 @@
 #include "port/logging.h"
 #include "port/status_macros.h"
 #include "port/std_mutex_lock.h"
+#include "port/stringprintf.h"
 
 namespace platforms {
 namespace darwinn {
@@ -46,10 +47,14 @@ ScalarCoreController::ScalarCoreController(const config::ChipConfig& config,
 }
 
 Status ScalarCoreController::Open() {
+  LOG(INFO) << "[INIT][ScalarCore::Open] BEGIN";
   StdMutexLock lock(&mutex_);
   RETURN_IF_ERROR(ValidateOpenState(/*open=*/false));
 
   // Sets |interrupt_counts_| to initial CSR values.
+  LOG(INFO) << StringPrintf(
+      "[INIT][ScalarCore::Open] read sc_host_int_count @0x%05llx (baseline)",
+      (unsigned long long)hib_user_csr_offsets_.sc_host_int_count);
   auto read_result = registers_->Read(hib_user_csr_offsets_.sc_host_int_count);
   RETURN_IF_ERROR(read_result.status());
 
@@ -58,9 +63,13 @@ Status ScalarCoreController::Open() {
 
   for (int i = 0; i < kNumInterrupts; ++i) {
     interrupt_counts_[i] = helper.get_field(i);
+    LOG(INFO) << StringPrintf(
+        "[INIT][ScalarCore::Open] sc_host_int_count[%d] baseline=%llu",
+        i, (unsigned long long)interrupt_counts_[i]);
   }
 
   open_ = true;
+  LOG(INFO) << "[INIT][ScalarCore::Open] END";
   return Status();  // OK
 }
 
@@ -73,6 +82,7 @@ Status ScalarCoreController::Close() {
 }
 
 Status ScalarCoreController::EnableInterrupts() {
+  LOG(INFO) << "[INIT][ScalarCore::EnableInterrupts] delegating to IntCtrl";
   return interrupt_controller_.EnableInterrupts();
 }
 

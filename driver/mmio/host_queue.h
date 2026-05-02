@@ -270,6 +270,7 @@ HostQueue<Element, StatusBlock>::HostQueue(
 
 template <typename Element, typename StatusBlock>
 Status HostQueue<Element, StatusBlock>::Open(AddressSpace* address_space) {
+  LOG(INFO) << "[INIT][HostQueue::Open] BEGIN";
   StdMutexLock lock(&open_mutex_);
   RETURN_IF_ERROR(CheckState(/*required=*/false));
 
@@ -282,8 +283,15 @@ Status HostQueue<Element, StatusBlock>::Open(AddressSpace* address_space) {
   address_space_ = address_space;
 
   // Check for pre-conditions to setup host queue correctly.
+  LOG(INFO) << StringPrintf(
+      "[INIT][HostQueue::Open] read queue_descriptor_size @0x%05llx",
+      (unsigned long long)csr_offsets_.queue_descriptor_size);
   ASSIGN_OR_RETURN(auto descriptor_result,
                    registers_->Read(csr_offsets_.queue_descriptor_size));
+  LOG(INFO) << StringPrintf(
+      "[INIT][HostQueue::Open] queue_descriptor_size readback=%llu "
+      "expected sizeof(Element)=%zu",
+      (unsigned long long)descriptor_result, sizeof(Element));
   if (descriptor_result != sizeof(Element)) {
     return InternalError("Size of |Element| does not match with the hardware.");
   }
@@ -294,6 +302,10 @@ Status HostQueue<Element, StatusBlock>::Open(AddressSpace* address_space) {
   const size_t sb_size =
       kHostPageSize *
       (MathUtil::CeilOfRatio<size_t>(sizeof(StatusBlock), kHostPageSize));
+  LOG(INFO) << StringPrintf(
+      "[INIT][HostQueue::Open] allocating coherent buffers: q_size=%zu "
+      "sb_size=%zu queue_size_slots=%d",
+      q_size, sb_size, size_);
 
   RETURN_IF_ERROR(coherent_allocator_->Open());
 
@@ -306,13 +318,30 @@ Status HostQueue<Element, StatusBlock>::Open(AddressSpace* address_space) {
 
   // Allocate device addresses.
   MapAll();
+  LOG(INFO) << StringPrintf(
+      "[INIT][HostQueue::Open] mapped: queue device_va=0x%llx "
+      "status_block device_va=0x%llx",
+      (unsigned long long)device_queue_buffer_.device_address(),
+      (unsigned long long)device_status_block_buffer_.device_address());
 
   // Setup queue.
+  LOG(INFO) << StringPrintf(
+      "[INIT][HostQueue::Open] queue_base @0x%05llx write=0x%llx "
+      "(device_va of ring)",
+      (unsigned long long)csr_offsets_.queue_base,
+      (unsigned long long)device_queue_buffer_.device_address());
   auto status = registers_->Write(csr_offsets_.queue_base,
                                   device_queue_buffer_.device_address());
+  LOG(INFO) << StringPrintf(
+      "[INIT][HostQueue::Open] queue_status_block_base @0x%05llx write=0x%llx",
+      (unsigned long long)csr_offsets_.queue_status_block_base,
+      (unsigned long long)device_status_block_buffer_.device_address());
   status.Update(
       registers_->Write(csr_offsets_.queue_status_block_base,
                         device_status_block_buffer_.device_address()));
+  LOG(INFO) << StringPrintf(
+      "[INIT][HostQueue::Open] queue_size @0x%05llx write=%d",
+      (unsigned long long)csr_offsets_.queue_size, size_);
   status.Update(registers_->Write(csr_offsets_.queue_size, size_));
   if (!status.ok()) {
     status.Update(UnmapAll());
@@ -323,10 +352,19 @@ Status HostQueue<Element, StatusBlock>::Open(AddressSpace* address_space) {
   config::registers::QueueControl control;
   control.set_enable(kEnableBit);
   control.set_sb_wr_enable(kEnableBit);
+  LOG(INFO) << StringPrintf(
+      "[INIT][HostQueue::Open] queue_control @0x%05llx write=0x%llx "
+      "(enable=1, sb_wr_enable=1)",
+      (unsigned long long)csr_offsets_.queue_control,
+      (unsigned long long)control.raw());
   RETURN_IF_ERROR(registers_->Write(csr_offsets_.queue_control, control.raw()));
+  LOG(INFO) << StringPrintf(
+      "[INIT][HostQueue::Open] poll queue_status @0x%05llx == 0x%x",
+      (unsigned long long)csr_offsets_.queue_status, kEnableBit);
   RETURN_IF_ERROR(registers_->Poll(csr_offsets_.queue_status, kEnableBit));
 
   open_ = true;
+  LOG(INFO) << "[INIT][HostQueue::Open] END (queue enabled)";
   return Status();  // OK
 }
 
