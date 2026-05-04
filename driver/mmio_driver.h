@@ -194,6 +194,11 @@ class MmioDriver : public Driver {
   // against.
   void DumpRunStatus(const char* tag);
 
+  // Full CSR dump — every 8B in the BAR2 control regions.  Output is a stream
+  // of "[CSR@<tag>] off=0x%05x val=0x%016llx" lines so the npu_driver baseline
+  // (NpuDumpAllCsr) can be diffed line-for-line against this trace.
+  void DumpFullCsr(const char* tag);
+
   // CSR offsets.
   const config::HibUserCsrOffsets& hib_user_csr_offsets_;
   const config::HibKernelCsrOffsets& hib_kernel_csr_offsets_;

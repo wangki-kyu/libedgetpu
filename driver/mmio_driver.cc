@@ -398,6 +398,10 @@ Status MmioDriver::DoOpen(bool debug_mode) {
   // All good. Move state to open.
   RETURN_IF_ERROR(SetState(kOpen));
 
+  // Full CSR snapshot BEFORE clock-gating idles the chip — this is the
+  // canonical "post-init, pre-submit" baseline that npu_driver mirrors.
+  DumpFullCsr("AfterOpen");
+
   // Clock gate until the first request arrives.
   LOG(INFO) << "[INIT][MmioDriver::DoOpen] phase=EnableSoftwareClockGate() "
                "(idle until first request)";
@@ -533,6 +537,7 @@ Status MmioDriver::DoSubmit(std::shared_ptr<TpuRequest> request) {
   RETURN_IF_ERROR(top_level_handler_->DisableSoftwareClockGate());
 
   DumpRunStatus("DoSubmit-pre-prepare");
+  DumpFullCsr("BeforeSubmit");
 
   // Validate and prepare the request.
   RETURN_IF_ERROR(request->Validate());
@@ -544,6 +549,7 @@ Status MmioDriver::DoSubmit(std::shared_ptr<TpuRequest> request) {
   RETURN_IF_ERROR(TryIssueDmas());
 
   DumpRunStatus("DoSubmit-post-issue");
+  DumpFullCsr("AfterIssueDmas");
 
   return Status();  // OK
 }
@@ -584,6 +590,9 @@ Status MmioDriver::TryIssueDmas() {
 
 void MmioDriver::HandleExecutionCompletion() {
   TRACE_SCOPE("MmioDriver::HandleExecutionCompletion");
+  // Snapshot BEFORE clock-gating: catches the post-execute state still on a
+  // running chip.  npu_driver hooks at the same moment for diff.
+  DumpFullCsr("AfterExecution");
   CHECK_OK(dma_scheduler_.NotifyRequestCompletion());
   HandleTpuRequestCompletion();
   if (dma_scheduler_.IsEmpty()) {
@@ -683,6 +692,47 @@ void MmioDriver::DumpRunStatus(const char* tag) {
       static_cast<unsigned long long>(ifflt),
       static_cast<unsigned long long>(hiberr),
       static_cast<unsigned long long>(iqstat));
+}
+
+void MmioDriver::DumpFullCsr(const char* tag) {
+  // Mirror NpuDumpAllCsr's region table so the diff is offset-aligned.
+  // Each region is dumped as 8B reads in 8B steps.  Some regions are sparse
+  // but reading reserved offsets returns the chip's POR value (0 / DEADBEEF
+  // marker) which is fine for diff.
+  struct Region { uint64 off; uint64 size; const char* name; };
+  static const Region kRegions[] = {
+      { 0x40000, 0x0400,            "scalar_core"        },
+      { 0x44000, 0x0400,            "data_feed_control"  },
+      { 0x46000, 0x0100,            "hib_kernel"         },
+      { 0x48000, 0x0800,            "hib_user"           },
+      { 0x50000, 8192ULL * 8ULL,    "page_table"         },
+  };
+
+  auto safe_read = [this](uint64 off) -> uint64 {
+    auto r = registers_->Read(off);
+    if (!r.ok()) return 0xDEADBEEFDEADBEEFULL;
+    return r.ValueOrDie();
+  };
+
+  LOG(INFO) << StringPrintf("[CSR-BEGIN@%s]", tag);
+  for (const auto& reg : kRegions) {
+    LOG(INFO) << StringPrintf("[CSR@%s] --- region %s 0x%05llx..0x%05llx ---",
+                              tag, reg.name,
+                              static_cast<unsigned long long>(reg.off),
+                              static_cast<unsigned long long>(reg.off + reg.size - 1));
+    for (uint64 o = 0; o < reg.size; o += 8) {
+      const uint64 abs_off = reg.off + o;
+      const uint64 val = safe_read(abs_off);
+      // Skip page_table all-zero entries to keep output manageable; print
+      // only valid (bit0=1) or first/last of each contiguous zero run.
+      if (reg.off == 0x50000 && val == 0) continue;
+      LOG(INFO) << StringPrintf("[CSR@%s] off=0x%05llx val=0x%016llx",
+                                tag,
+                                static_cast<unsigned long long>(abs_off),
+                                static_cast<unsigned long long>(val));
+    }
+  }
+  LOG(INFO) << StringPrintf("[CSR-END@%s]", tag);
 }
 
 }  // namespace driver
