@@ -491,6 +491,11 @@ Buffer MmioDriver::DoMakeBuffer(size_t size_bytes) const {
 StatusOr<MappedDeviceBuffer> MmioDriver::DoMapBuffer(const Buffer& buffer,
                                                      DmaDirection direction) {
   if (buffer.IsValid()) {
+    // ★ user-data buffer 는 항상 EXTENDED 영역에 매핑되도록 hardcode.
+    //    instruction / input / output / parameter 모두 여기 통과.
+    LOG(INFO) << StringPrintf(
+        "[DoMapBuffer] user buffer (size=%zu B) → forcing kExtended hint",
+        buffer.size_bytes());
     ASSIGN_OR_RETURN(auto device_buffer,
                      address_space_->MapMemory(buffer, direction,
                                                MappingTypeHint::kExtended));
@@ -527,6 +532,8 @@ Status MmioDriver::DoSubmit(std::shared_ptr<TpuRequest> request) {
   // is built.
   RETURN_IF_ERROR(top_level_handler_->DisableSoftwareClockGate());
 
+  DumpRunStatus("DoSubmit-pre-prepare");
+
   // Validate and prepare the request.
   RETURN_IF_ERROR(request->Validate());
   RETURN_IF_ERROR(request->Prepare());
@@ -535,6 +542,8 @@ Status MmioDriver::DoSubmit(std::shared_ptr<TpuRequest> request) {
 
   TRACE_WITHIN_SCOPE("MmioDriver::DoSubmit::Issue");
   RETURN_IF_ERROR(TryIssueDmas());
+
+  DumpRunStatus("DoSubmit-post-issue");
 
   return Status();  // OK
 }
@@ -615,6 +624,65 @@ Status MmioDriver::PauseAllDmas() {
 
 Status MmioDriver::FixErrata() {
   return OkStatus();
+}
+
+void MmioDriver::DumpRunStatus(const char* tag) {
+  // Authoritative offsets from
+  //   driver/config/beagle/beagle_csr_offsets.h
+  //   - avDataPopRunStatus     0x44168
+  //   - parameterPopRunStatus  0x441a8
+  //   - infeedRunStatus        0x441e0
+  //   - outfeedRunStatus       0x44220
+  //   - scalarCoreRunStatus    0x44258
+  // Engine state encoding seen in libedgetpu enums: 0=kIdle 1=kRunning
+  // 4=kHalted (other values exist on errata paths).
+  auto safe_read = [this](uint64 off) -> uint64 {
+    auto r = registers_->Read(off);
+    if (!r.ok()) return 0xDEADBEEFDEADBEEFULL;
+    return r.ValueOrDie();
+  };
+
+  const uint64 av     = safe_read(0x44168);
+  const uint64 param  = safe_read(0x441a8);
+  const uint64 infeed = safe_read(0x441e0);
+  const uint64 outf   = safe_read(0x44220);
+  const uint64 scalar = safe_read(0x44258);
+
+  LOG(INFO) << StringPrintf(
+      "[RUN-STATUS@%s] SCALAR@0x44258=%llu AVDATA@0x44168=%llu "
+      "PARAM@0x441a8=%llu INFEED@0x441e0=%llu OUTFEED@0x44220=%llu",
+      tag,
+      static_cast<unsigned long long>(scalar),
+      static_cast<unsigned long long>(av),
+      static_cast<unsigned long long>(param),
+      static_cast<unsigned long long>(infeed),
+      static_cast<unsigned long long>(outf));
+
+  // PT-related CSRs — used by npu_driver to verify boundary + translation state
+  // matches what the chip thinks it is right at submit time.  These are mmap'd
+  // (BAR2+0x46000 region in our kernel_registers.cc setup) so safe_read works.
+  //   page_table_size               @0x46000  (libedgetpu writes 8192 at init)
+  //   extended_table (boundary)     @0x46008  (libedgetpu writes 6144 at init)
+  //   kernel_hib_translation_enable @0x46010  (POR=1 expected)
+  //   infeed_page_fault_address     @0x48738  (latched VA on page fault, 0=clean)
+  //   user_hib_error_status         @0x486f0  (any HIB-side fault flag)
+  //   instruction_queue_int_status  @0x485c8  (W1C; read shows pending IQ-int)
+  const uint64 ptsize = safe_read(0x46000);
+  const uint64 ptbnd  = safe_read(0x46008);
+  const uint64 trxen  = safe_read(0x46010);
+  const uint64 ifflt  = safe_read(0x48738);
+  const uint64 hiberr = safe_read(0x486f0);
+  const uint64 iqstat = safe_read(0x485c8);
+  LOG(INFO) << StringPrintf(
+      "[PT-CSR@%s] page_table_size=%llu extended_table=%llu translation_en=%llu "
+      "infeed_fault_va=0x%llx hib_err=0x%llx iq_int_status=0x%llx",
+      tag,
+      static_cast<unsigned long long>(ptsize),
+      static_cast<unsigned long long>(ptbnd),
+      static_cast<unsigned long long>(trxen),
+      static_cast<unsigned long long>(ifflt),
+      static_cast<unsigned long long>(hiberr),
+      static_cast<unsigned long long>(iqstat));
 }
 
 }  // namespace driver

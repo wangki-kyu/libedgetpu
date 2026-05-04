@@ -186,6 +186,14 @@ class MmioDriver : public Driver {
   // Programs errata CSRs to disable hardware features with known issues.
   Status FixErrata();
 
+  // Debug helper: read the 5 engine RUN_STATUS CSRs at the *real* offsets
+  // from beagle_csr_offsets.h (avDataPopRunStatus / parameterPopRunStatus /
+  // infeedRunStatus / outfeedRunStatus / scalarCoreRunStatus).  npu_driver
+  // had these mapped to the wrong offsets (OverwriteMode), so a libedgetpu
+  // baseline at the same submit moments is the ground truth we compare
+  // against.
+  void DumpRunStatus(const char* tag);
+
   // CSR offsets.
   const config::HibUserCsrOffsets& hib_user_csr_offsets_;
   const config::HibKernelCsrOffsets& hib_kernel_csr_offsets_;

@@ -89,6 +89,8 @@ void LinkBatchedAddress(Description target, const std::string& name,
     const uint64 link_address = addresses[batch];
 
     uint32 immediate_value;
+    const char* pos_label =
+        meta->position() == Position_LOWER_32BIT ? "LOWER_32" : "UPPER_32";
     if (meta->position() == Position_LOWER_32BIT) {
       VLOG(3) << StringPrintf(
           "Linking %s[%d]: 0x%016llx", name.c_str(), batch,
@@ -99,6 +101,13 @@ void LinkBatchedAddress(Description target, const std::string& name,
       CHECK_EQ(meta->position(), Position_UPPER_32BIT);
       immediate_value = (link_address >> 32) & kuint32max;
     }
+    LOG(INFO) << StringPrintf(
+        "[LINK] name='%s' batch=%d position=%s bitstream_bit_offset=%d "
+        "(byte=%d) device_va=0x%016llx patch_value=0x%08x",
+        name.c_str(), batch, pos_label, field_offset->offset_bit(),
+        field_offset->offset_bit() / 8,
+        static_cast<unsigned long long>(link_address),
+        immediate_value);
     ExecutableUtil::CopyUint32(encoded_buffer, field_offset->offset_bit(),
                                immediate_value);
   }
@@ -154,6 +163,8 @@ void ExecutableUtil::LinkScratchAddress(
     CHECK_EQ(meta->batch(), 0);
 
     uint32 immediate_value;
+    const char* pos_label =
+        meta->position() == Position_LOWER_32BIT ? "LOWER_32" : "UPPER_32";
     if (meta->position() == Position_LOWER_32BIT) {
       VLOG(3) << StringPrintf(
           "Linking Scratch: 0x%016llx",
@@ -165,6 +176,13 @@ void ExecutableUtil::LinkScratchAddress(
       immediate_value = (scratch_address >> 32) & kuint32max;
     }
 
+    LOG(INFO) << StringPrintf(
+        "[LINK] name='Scratch' position=%s bitstream_bit_offset=%d "
+        "(byte=%d) device_va=0x%016llx patch_value=0x%08x",
+        pos_label, field_offset->offset_bit(),
+        field_offset->offset_bit() / 8,
+        static_cast<unsigned long long>(scratch_address),
+        immediate_value);
     CopyUint32(encoded_buffer, field_offset->offset_bit(), immediate_value);
   }
 }
@@ -183,6 +201,8 @@ void ExecutableUtil::LinkParameterAddress(
     }
 
     uint32 immediate_value;
+    const char* pos_label =
+        meta->position() == Position_LOWER_32BIT ? "LOWER_32" : "UPPER_32";
     if (meta->position() == Position_LOWER_32BIT) {
       VLOG(3) << StringPrintf(
           "Linking Parameter: 0x%016llx",
@@ -194,6 +214,13 @@ void ExecutableUtil::LinkParameterAddress(
       immediate_value = (parameter_address >> 32) & kuint32max;
     }
 
+    LOG(INFO) << StringPrintf(
+        "[LINK] name='Parameter' position=%s bitstream_bit_offset=%d "
+        "(byte=%d) device_va=0x%016llx patch_value=0x%08x",
+        pos_label, field_offset->offset_bit(),
+        field_offset->offset_bit() / 8,
+        static_cast<unsigned long long>(parameter_address),
+        immediate_value);
     CopyUint32(encoded_buffer, field_offset->offset_bit(), immediate_value);
   }
 }

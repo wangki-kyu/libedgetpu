@@ -420,8 +420,24 @@ Status HostQueue<Element, StatusBlock>::Enqueue(
 
   VLOG(3) << "Adding an element to the host queue.";
 
+  const int slot = tail_;
   queue_[tail_] = element;
   callbacks_[tail_] = std::move(callback);
+
+  // Dump the 16-byte ring entry the chip is about to fetch.  npu_driver
+  // logs the same 16 bytes in [INFER] Ring slot raw, so a side-by-side diff
+  // immediately tells us if our descriptor layout is wrong (e.g. address vs
+  // size byte order, reserved word non-zero, etc).
+  {
+    const uint8_t* raw = reinterpret_cast<const uint8_t*>(&queue_[slot]);
+    LOG(INFO) << StringPrintf(
+        "[ENQ] slot=%d new_tail=%d sizeof(Element)=%zu raw="
+        "%02x %02x %02x %02x %02x %02x %02x %02x  "
+        "%02x %02x %02x %02x %02x %02x %02x %02x",
+        slot, (slot + 1) & (size_ - 1), sizeof(Element),
+        raw[0], raw[1], raw[2], raw[3], raw[4], raw[5], raw[6], raw[7],
+        raw[8], raw[9], raw[10], raw[11], raw[12], raw[13], raw[14], raw[15]);
+  }
 
   ++tail_;
   tail_ &= (size_ - 1);
@@ -438,6 +454,20 @@ void HostQueue<Element, StatusBlock>::ProcessStatusBlock() {
   StatusBlock status_block = *status_block_;
   const int completed_until = status_block.completed_head_pointer;
   const uint32 error_status = status_block.fatal_error;
+
+  // Raw status block dump — chip wrote here via the device VA we mapped at
+  // open-time (status_block_base CSR).  npu_driver logs the same memory in
+  // [DPC-SB] StatusBlock: [0]=... so a side-by-side compare confirms whether
+  // chip's outbound write actually landed in the status block (or in a
+  // wrong-VA region).
+  {
+    const uint64* sb = reinterpret_cast<const uint64*>(status_block_);
+    LOG(INFO) << StringPrintf(
+        "[SB] completed_head=%d fatal=0x%x raw[0]=0x%016llx raw[1]=0x%016llx",
+        completed_until, error_status,
+        static_cast<unsigned long long>(sb[0]),
+        static_cast<unsigned long long>(sb[1]));
+  }
 
   std::vector<std::function<void(uint32)>> dones;
   {

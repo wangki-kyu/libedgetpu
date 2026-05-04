@@ -132,16 +132,25 @@ Status KernelMmuMapper::DoMap(const void *buffer, int num_pages,
   }
 
   if (map_flags_supported_) {
-    VLOG(4) << StringPrintf("MmuMapper#Map() : %016" PRIx64 " -> %016" PRIx64
-                            " (%d pages) flags=%08" PRIx32 ".",
-                            buffer_to_map.base.host_address,
-                            buffer_to_map.base.device_address, num_pages,
-                            buffer_to_map.flags);
+    // Decode the DMA direction bits (shift=1, width=2) into a label so the
+    // npu_driver vs libedgetpu compare is one-line instead of bit-math.
+    const uint32_t dir = (buffer_to_map.flags >> 1) & 0x3;
+    const char* dir_label =
+        dir == 0 ? "BIDIRECTIONAL" :
+        dir == 1 ? "TO_DEVICE(input)" :
+        dir == 2 ? "FROM_DEVICE(output)" :
+                   "NONE";
+    LOG(INFO) << StringPrintf(
+        "[MAP] host=0x%016" PRIx64 " -> dev=0x%016" PRIx64
+        " pages=%d ioctl_flags=0x%08" PRIx32 " dir=%s",
+        buffer_to_map.base.host_address, buffer_to_map.base.device_address,
+        num_pages, buffer_to_map.flags, dir_label);
   } else {
-    VLOG(4) << StringPrintf("MmuMapper#Map() : %016" PRIx64 " -> %016" PRIx64
-                            " (%d pages).",
-                            buffer_to_map.base.host_address,
-                            buffer_to_map.base.device_address, num_pages);
+    LOG(INFO) << StringPrintf(
+        "[MAP] host=0x%016" PRIx64 " -> dev=0x%016" PRIx64
+        " pages=%d (legacy ioctl, no flags)",
+        buffer_to_map.base.host_address, buffer_to_map.base.device_address,
+        num_pages);
   }
 
   return Status();  // OK
