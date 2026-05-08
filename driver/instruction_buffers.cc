@@ -21,6 +21,7 @@
 #include "driver/executable_util.h"
 #include "executable/executable_generated.h"
 #include "port/logging.h"
+#include "port/stringprintf.h"
 #include "port/tracing.h"
 
 namespace platforms {
@@ -113,6 +114,30 @@ void InstructionBuffers::LinkInstructionBuffers(
           gtl::MutableArraySlice<uint8>(
               buffers_[i].ptr(),
               VectorLength(instruction_bitstreams.Get(i)->bitstream())));
+    }
+
+    // === Full hex dump of patched bitstream chunk ============================
+    // Dump after all Link* calls so we see the final chip-bound bytes.
+    // Format: [LINKED-BS] chunk=<i> off=0xXXXX  16 bytes hex  ASCII
+    {
+      const size_t bs_size =
+          VectorLength(instruction_bitstreams.Get(i)->bitstream());
+      const uint8* bs = buffers_[i].ptr();
+      LOG(INFO) << StringPrintf(
+          "[LINKED-BS] chunk=%d size=%zu (bytes) — full hex dump follows", i,
+          bs_size);
+      for (size_t off = 0; off < bs_size; off += 16) {
+        char hex_part[3 * 16 + 2] = {0};
+        char asc_part[16 + 1] = {0};
+        size_t row_len = (bs_size - off >= 16) ? 16 : (bs_size - off);
+        for (size_t k = 0; k < row_len; ++k) {
+          uint8 b = bs[off + k];
+          snprintf(hex_part + k * 3, 4, "%02x ", b);
+          asc_part[k] = (b >= 0x20 && b < 0x7f) ? static_cast<char>(b) : '.';
+        }
+        LOG(INFO) << StringPrintf("[LINKED-BS] chunk=%d off=0x%04zx  %-48s |%s|",
+                                  i, off, hex_part, asc_part);
+      }
     }
   }
 }
